@@ -2,6 +2,7 @@
 
 extern crate test;
 
+use std::fmt::{self, Display, Formatter};
 use std::num::Wrapping;
 use std::thread;
 use std::time::*;
@@ -18,7 +19,7 @@ fn main() {
         // Do a fixed amount of work each frame.
         let mut prev = Wrapping(0);
         let mut current = Wrapping(1);
-        for _ in 0..10_000 {
+        for _ in 0..50_000 {
             let temp = current;
             current = prev + current;
             prev = temp;
@@ -27,10 +28,6 @@ fn main() {
         
         let duration = frame_start.elapsed();
         times.push(duration);
-        
-        // let nanos_total = duration.subsec_nanos();
-        // let millis = nanos_total / 1_000_000;
-        // let micros = (nanos_total % 1_000_000) / 1_000;
         
         frame_start += target_frame_time;
         
@@ -41,15 +38,30 @@ fn main() {
     
     let mut min = times[0];
     let mut max = times[0];
-    let total = Duration::new(0, 0);
+    let mut total = Duration::new(0, 0);
+    let mut long_frames = 0;
     
     for time in times {
         total += time;
         if time < min { min = time; }
         if time > max { max = time; }
+        if time > target_frame_time { long_frames += 1; }
     }
     
-    println!("min: {}", min);
-    println!("max: {}", max);
-    println!("avg: {}", total / FRAME_COUNT);
+    println!("min: {}", PrettyDuration(min));
+    println!("max: {}", PrettyDuration(max));
+    println!("avg: {}", PrettyDuration(total / FRAME_COUNT as u32));
+    println!("long frames: {}", long_frames);
+}
+
+struct PrettyDuration(Duration);
+
+impl Display for PrettyDuration {
+    fn fmt(&self, formatter: &mut Formatter) -> Result<(), fmt::Error> {
+        let nanos_total = self.0.subsec_nanos();
+        let millis = nanos_total / 1_000_000;
+        let micros = (nanos_total % 1_000_000) / 1_000;
+    
+        write!(formatter, "{}.{}ms", millis, micros)
+    }
 }
