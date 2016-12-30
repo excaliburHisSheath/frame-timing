@@ -45,21 +45,28 @@ fn main() {
         .get_matches();
 
     // TODO: Allow these to be passed in as arguments.
-    let params = TestParams {
-        target_frame_time: Duration::new(0, 16_666_667),
-        frames_to_simulate: 10 * 60 * 60,
-        workload: 10_000_000,
-    };
+    let target_frame_time = Duration::new(0, 16_666_667);
+    let frames_to_simulate = 10 * 60;// * 60;
+    let workload = 10_000_000;
 
     println!("Test params:");
-    println!("  Target frame time: {}", PrettyDuration(params.target_frame_time));
-    println!("  Frames to simulate: {}", params.frames_to_simulate);
-    println!("  Workload per frame: {}", params.workload);
+    println!("  Target frame time: {}", PrettyDuration(target_frame_time));
+    println!("  Frames to simulate: {}", frames_to_simulate);
+    println!("  Workload per frame: {}", workload);
 
-    if let Some(test_name) = matches.value_of("test name") {
+    if let Some(test_name) = matches.value_of("test name").map(String::from) {
         // Test only the specified routine.
-        if let Some(routine) = TEST_ROUTINES.get(test_name) {
-            let results = run_test(*routine, params);
+        // ========================================================================================
+        if let Some(routine) = TEST_ROUTINES.get(&*test_name) {
+            let results = run_test(
+                *routine,
+                TestParams {
+                    test_name: test_name.clone(),
+                    target_frame_time: target_frame_time,
+                    frames_to_simulate: frames_to_simulate,
+                    workload: workload,
+                },
+            );
 
             println!("Results for {}:", test_name);
             println!("  Min: {}", PrettyDuration(results.min));
@@ -73,10 +80,26 @@ fn main() {
         }
     } else {
         // Test all the routines.
-        for (test_name, routine) in &*TEST_ROUTINES {
-            let results = run_test(*routine, params);
+        // ========================================================================================
 
-            println!("Results for {}:", test_name);
+        // Run tests in parallel on separate threads.
+        let mut handles = Vec::new();
+        for (test_name, routine) in &*TEST_ROUTINES {
+            let params = TestParams {
+                test_name: String::from(*test_name),
+                target_frame_time: target_frame_time,
+                frames_to_simulate: frames_to_simulate,
+                workload: workload,
+            };
+            let handle = thread::spawn(move || run_test(*routine, params));
+            handles.push(handle);
+        }
+
+        // Join on each handle to get results.
+        for handle in handles {
+            let results = handle.join().expect("Failed to get test result");
+
+            println!("Results for {}:", results.test_name);
             println!("  Min: {}", PrettyDuration(results.min));
             println!("  Max: {}", PrettyDuration(results.max));
             println!("  Mean: {}", PrettyDuration(results.mean));
@@ -93,15 +116,17 @@ fn main() {
     // out_file.write_all(events_string.as_bytes()).unwrap();
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 struct TestParams {
+    test_name: String,
     target_frame_time: Duration,
     frames_to_simulate: usize,
     workload: usize
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 struct TestResults {
+    test_name: String,
     min: Duration,
     max: Duration,
     mean: Duration,
@@ -120,7 +145,7 @@ fn from_nanos(nanos: u64) -> Duration {
 }
 
 fn run_test(test_routine: TestRoutine, params: TestParams) -> TestResults {
-    let times = test_routine(params);
+    let times = test_routine(params.clone());
 
     let mut min = times[0];
     let mut max = times[0];
@@ -148,6 +173,7 @@ fn run_test(test_routine: TestRoutine, params: TestParams) -> TestResults {
     let std_dev = f64::sqrt(total_sqr_deviation as f64 / params.frames_to_simulate as f64);
 
     TestResults {
+        test_name: params.test_name,
         min: min,
         max: max,
         mean: mean,
@@ -176,20 +202,20 @@ pub fn do_work(iterations: usize) -> Duration {
     start_time.elapsed()
 }
 
-fn loop_0(TestParams { target_frame_time, frames_to_simulate, workload }: TestParams) -> Vec<Duration> {
-    let mut times = Vec::with_capacity(frames_to_simulate);
+fn loop_0(params: TestParams) -> Vec<Duration> {
+    let mut times = Vec::with_capacity(params.frames_to_simulate);
 
-    for _ in 0..frames_to_simulate {
+    for _ in 0..params.frames_to_simulate {
         let frame_start = Instant::now();
 
         // Simulate the workload.
-        let duration = do_work(workload);
+        let duration = do_work(params.workload);
         times.push(duration);
 
         // If the frame took too long the subtraction will overflow, so we have to check first.
         let mut elapsed_time = frame_start.elapsed();
-        if elapsed_time < target_frame_time {
-            let mut remaining_time = target_frame_time - elapsed_time;
+        if elapsed_time < params.target_frame_time {
+            let mut remaining_time = params.target_frame_time - elapsed_time;
 
             // Sleep the thread to kill time.
             while remaining_time > Duration::from_millis(1) {
@@ -197,8 +223,8 @@ fn loop_0(TestParams { target_frame_time, frames_to_simulate, workload }: TestPa
 
                 // Check again if we've passed the frame time to avoid overflow in the subtraction.
                 elapsed_time = frame_start.elapsed();
-                if elapsed_time < target_frame_time {
-                    remaining_time = target_frame_time - elapsed_time;
+                if elapsed_time < params.target_frame_time {
+                    remaining_time = params.target_frame_time - elapsed_time;
                 } else {
                     break;
                 }
@@ -206,25 +232,25 @@ fn loop_0(TestParams { target_frame_time, frames_to_simulate, workload }: TestPa
 
             // Not enough time to sleep the thread,
             // just spin until we reach the target time.
-            while frame_start.elapsed() < target_frame_time {}
+            while frame_start.elapsed() < params.target_frame_time {}
         }
     }
 
     times
 }
 
-fn loop_1(TestParams { target_frame_time, frames_to_simulate, workload }: TestParams) -> Vec<Duration> {
-    let mut times = Vec::with_capacity(frames_to_simulate);
+fn loop_1(params: TestParams) -> Vec<Duration> {
+    let mut times = Vec::with_capacity(params.frames_to_simulate);
 
     let mut frame_start = Instant::now();
 
-    for _ in 0..frames_to_simulate {
+    for _ in 0..params.frames_to_simulate {
         // Simulate the workload.
-        let duration = do_work(workload);
+        let duration = do_work(params.workload);
         times.push(duration);
 
         // Move the frame start time up by the frame length.
-        frame_start += target_frame_time;
+        frame_start += params.target_frame_time;
 
         // If the frame took too long the subtraction will overflow, so we have to check first.
         let mut now = Instant::now();
@@ -253,24 +279,24 @@ fn loop_1(TestParams { target_frame_time, frames_to_simulate, workload }: TestPa
     times
 }
 
-fn loop_2(TestParams { target_frame_time, frames_to_simulate, workload }: TestParams) -> Vec<Duration> {
-    let mut times = Vec::with_capacity(frames_to_simulate);
+fn loop_2(params: TestParams) -> Vec<Duration> {
+    let mut times = Vec::with_capacity(params.frames_to_simulate);
 
     let mut last_frame_time = Instant::now();
     let mut remaining_update_time = Duration::new(0, 0);
 
     let mut loops_done = 0;
 
-    while loops_done < frames_to_simulate {
+    while loops_done < params.frames_to_simulate {
         let frame_start = Instant::now();
         remaining_update_time += frame_start - last_frame_time;
 
-        while remaining_update_time > target_frame_time {
+        while remaining_update_time > params.target_frame_time {
             // Simulate the workload.
-            let duration = do_work(workload);
+            let duration = do_work(params.workload);
             times.push(duration);
 
-            remaining_update_time -= target_frame_time;
+            remaining_update_time -= params.target_frame_time;
             loops_done += 1;
         }
 
@@ -282,19 +308,19 @@ fn loop_2(TestParams { target_frame_time, frames_to_simulate, workload }: TestPa
     times
 }
 
-fn loop_3(TestParams { target_frame_time, frames_to_simulate, workload }: TestParams) -> Vec<Duration> {
-    let mut times = Vec::with_capacity(frames_to_simulate);
+fn loop_3(params: TestParams) -> Vec<Duration> {
+    let mut times = Vec::with_capacity(params.frames_to_simulate);
 
     let mut frame_start = Instant::now();
-    for _ in 0..frames_to_simulate {
+    for _ in 0..params.frames_to_simulate {
         // Simulate the workload.
-        let duration = do_work(workload);
+        let duration = do_work(params.workload);
         times.push(duration);
 
         // Determine when the next frame should start, accounting for the case that we missed our
         // frame time and might need to drop frames.
         while frame_start < Instant::now() {
-            frame_start += target_frame_time;
+            frame_start += params.target_frame_time;
         }
 
         // Now wait until we've returned to the frame cadence before beginning the next frame.
