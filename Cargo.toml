@@ -5,4 +5,5 @@ authors = ["David LeGare <excaliburhissheath@gmail.com>"]
 
 [dependencies]
 clap = "2.19"
+lazy_static = "0.2"
 stopwatch = { path = "../gunship-fps/gunship-rs/lib/stopwatch" }

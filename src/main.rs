@@ -1,6 +1,8 @@
 #![feature(test)]
 
 extern crate clap;
+#[macro_use]
+extern crate lazy_static;
 // extern crate stopwatch;
 extern crate test;
 
@@ -13,6 +15,18 @@ use std::num::Wrapping;
 use std::thread;
 use std::time::*;
 // use stopwatch::Stopwatch;
+
+lazy_static! {
+    static ref TEST_ROUTINES: HashMap<&'static str, TestRoutine> = {
+        let mut tests = HashMap::<_, TestRoutine>::new();
+        tests.insert("test_0", loop_0);
+        tests.insert("test_1", loop_1);
+        tests.insert("test_2", loop_2);
+        tests.insert("test_3", loop_3);
+        tests.insert("test_4", loop_4);
+        tests
+    };
+}
 
 type TestRoutine = fn(TestParams) -> Vec<Duration>;
 
@@ -30,39 +44,44 @@ fn main() {
         )
         .get_matches();
 
-    let tests = {
-        let mut tests = HashMap::<_, TestRoutine>::new();
-        tests.insert("test_0", loop_0);
-        tests.insert("test_1", loop_1);
-        tests.insert("test_2", loop_2);
-        tests.insert("test_3", loop_3);
-        tests
-    };
-
     // TODO: Allow these to be passed in as arguments.
     let params = TestParams {
         target_frame_time: Duration::new(0, 16_666_667),
-        frames_to_simulate: 1 * 60,
+        frames_to_simulate: 10 * 60 * 60,
         workload: 10_000_000,
     };
 
+    println!("Test params:");
+    println!("  Target frame time: {}", PrettyDuration(params.target_frame_time));
+    println!("  Frames to simulate: {}", params.frames_to_simulate);
+    println!("  Workload per frame: {}", params.workload);
+
     if let Some(test_name) = matches.value_of("test name") {
         // Test only the specified routine.
-        if let Some(routine) = tests.get(test_name) {
+        if let Some(routine) = TEST_ROUTINES.get(test_name) {
             let results = run_test(*routine, params);
-            println!("params: {:#?}", params);
-            println!("{} results: {:#?}", test_name, results);
+
+            println!("Results for {}:", test_name);
+            println!("  Min: {}", PrettyDuration(results.min));
+            println!("  Max: {}", PrettyDuration(results.max));
+            println!("  Mean: {}", PrettyDuration(results.mean));
+            println!("  Std: {}", PrettyDuration(results.std));
+            println!("  Long frames: {}", results.long_frames);
         } else {
             // TODO: Use clap's configuration to remove this possiblity.
             println!("Unrecognized test name: \"{}\"", test_name);
         }
     } else {
         // Test all the routines.
-        println!("params: {:#?}", params);
+        for (test_name, routine) in &*TEST_ROUTINES {
+            let results = run_test(*routine, params);
 
-        for (test_name, routine) in tests {
-            let results = run_test(routine, params);
-            println!("{} results: {:#?}", test_name, results);
+            println!("Results for {}:", test_name);
+            println!("  Min: {}", PrettyDuration(results.min));
+            println!("  Max: {}", PrettyDuration(results.max));
+            println!("  Mean: {}", PrettyDuration(results.mean));
+            println!("  Std: {}", PrettyDuration(results.std));
+            println!("  Long frames: {}", results.long_frames);
         }
     }
 
@@ -281,6 +300,32 @@ fn loop_3(TestParams { target_frame_time, frames_to_simulate, workload }: TestPa
         // Now wait until we've returned to the frame cadence before beginning the next frame.
         while Instant::now() < frame_start {
             thread::sleep(Duration::new(0, 0));
+        }
+    }
+
+    times
+}
+
+fn loop_4(params: TestParams) -> Vec<Duration> {
+    let mut times = Vec::with_capacity(params.frames_to_simulate);
+
+    let mut frame_start = Instant::now();
+    for _ in 0..params.frames_to_simulate {
+        // Simulate the workload.
+        let duration = do_work(params.workload);
+        times.push(duration);
+
+        // Determine when the next frame should start, accounting for the case that we missed our
+        // frame time and might need to drop frames.
+        while frame_start < Instant::now() {
+            frame_start += params.target_frame_time;
+        }
+
+        // Now wait until we've returned to the frame cadence before beginning the next frame.
+        let now = Instant::now();
+        if now + Duration::from_millis(1) < frame_start {
+            // TODO: `beginTimePeriod(1)`
+            thread::sleep(frame_start - (now + Duration::from_millis(1)));
         }
     }
 
