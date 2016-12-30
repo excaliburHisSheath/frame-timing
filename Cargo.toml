@@ -4,3 +4,5 @@ version = "0.1.0"
 authors = ["David LeGare <excaliburhissheath@gmail.com>"]
 
 [dependencies]
+clap = "2.19"
+stopwatch = { path = "../gunship-fps/gunship-rs/lib/stopwatch" }
