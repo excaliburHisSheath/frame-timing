@@ -11,6 +11,7 @@ use std::collections::HashMap;
 use std::fmt::{self, Display, Formatter};
 // use std::fs::File;
 // use std::io::Write;
+use std::process;
 use std::num::Wrapping;
 use std::thread;
 use std::time::*;
@@ -46,8 +47,18 @@ fn main() {
 
     // TODO: Allow these to be passed in as arguments.
     let target_frame_time = Duration::new(0, 16_666_667);
-    let frames_to_simulate = 10 * 60;// * 60;
     let workload = 10_000_000;
+
+    let frames_to_simulate = match matches.value_of("num frames") {
+        Some(frame_str) => match str::parse::<usize>(frame_str) {
+            Ok(frames) => frames,
+            Err(_) => {
+                println!("Invalid number of frames \"{}\"", frame_str);
+                process::exit(1);
+            }
+        },
+        None => 5 * 10 * 60,
+    };
 
     println!("Test params:");
     println!("  Target frame time: {}", PrettyDuration(target_frame_time));
@@ -73,7 +84,7 @@ fn main() {
             println!("  Max: {}", PrettyDuration(results.max));
             println!("  Mean: {}", PrettyDuration(results.mean));
             println!("  Std: {}", PrettyDuration(results.std));
-            println!("  Long frames: {}", results.long_frames);
+            println!("  Long frames: {} ({:.2}%)", results.long_frames, results.long_frame_percent * 100.0);
         } else {
             // TODO: Use clap's configuration to remove this possiblity.
             println!("Unrecognized test name: \"{}\"", test_name);
@@ -104,7 +115,7 @@ fn main() {
             println!("  Max: {}", PrettyDuration(results.max));
             println!("  Mean: {}", PrettyDuration(results.mean));
             println!("  Std: {}", PrettyDuration(results.std));
-            println!("  Long frames: {}", results.long_frames);
+            println!("  Long frames: {} ({:.2}%)", results.long_frames, results.long_frame_percent * 100.0);
         }
     }
 
@@ -132,6 +143,7 @@ struct TestResults {
     mean: Duration,
     std: Duration,
     long_frames: usize,
+    long_frame_percent: f64,
 }
 
 fn as_nanos(duration: Duration) -> u64 {
@@ -179,6 +191,7 @@ fn run_test(test_routine: TestRoutine, params: TestParams) -> TestResults {
         mean: mean,
         std: from_nanos(std_dev as u64),
         long_frames: long_frames,
+        long_frame_percent: long_frames as f64 / params.frames_to_simulate as f64,
     }
 }
 
