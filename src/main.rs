@@ -1,10 +1,7 @@
-#![feature(test)]
-
 extern crate clap;
 #[macro_use]
 extern crate lazy_static;
-// extern crate stopwatch;
-extern crate test;
+extern crate bencher;
 
 use clap::{Arg, App};
 use std::collections::HashMap;
@@ -47,7 +44,7 @@ fn main() {
 
     // TODO: Allow these to be passed in as arguments.
     let target_frame_time = Duration::new(0, 16_666_667);
-    let workload = 10_000_000;
+    let workload = Duration::from_millis(0);
 
     let frames_to_simulate = match matches.value_of("num frames") {
         Some(frame_str) => match str::parse::<usize>(frame_str) {
@@ -63,7 +60,7 @@ fn main() {
     println!("Test params:");
     println!("  Target frame time: {}", PrettyDuration(target_frame_time));
     println!("  Frames to simulate: {}", frames_to_simulate);
-    println!("  Workload per frame: {}", workload);
+    println!("  Workload per frame: {}", PrettyDuration(workload));
 
     if let Some(test_name) = matches.value_of("test name").map(String::from) {
         // Test only the specified routine.
@@ -132,7 +129,7 @@ struct TestParams {
     test_name: String,
     target_frame_time: Duration,
     frames_to_simulate: usize,
-    workload: usize
+    workload: Duration,
 }
 
 #[derive(Debug, Clone)]
@@ -198,19 +195,15 @@ fn run_test(test_routine: TestRoutine, params: TestParams) -> TestResults {
 /// Performs a deterministic amount of work, returning the duration the work took.
 ///
 ///
-pub fn do_work(iterations: usize) -> Duration {
+pub fn do_work(duration: Duration) -> Duration {
     // let _s = Stopwatch::new("work");
 
     let start_time = Instant::now();
 
-    let mut prev = Wrapping(0);
-    let mut current = Wrapping(1);
-    for _ in 0..iterations {
-        let temp = current;
-        current = prev + current;
-        prev = temp;
+    let mut counter = Wrapping(0);
+    while start_time.elapsed() < duration {
+        counter = bencher::black_box(counter + Wrapping(1));
     }
-    test::black_box(current);
 
     start_time.elapsed()
 }

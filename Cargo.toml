@@ -4,6 +4,6 @@ version = "0.1.0"
 authors = ["David LeGare <excaliburhissheath@gmail.com>"]
 
 [dependencies]
+bencher = "0.1.5"
 clap = "2.19"
 lazy_static = "0.2"
-stopwatch = { path = "../gunship-fps/gunship-rs/lib/stopwatch" }
